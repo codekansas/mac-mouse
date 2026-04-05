@@ -44,4 +44,27 @@ final class ButtonAssignmentStoreTests: XCTestCase {
         XCTAssertTrue(store.clear(.moveRightSpace))
         XCTAssertNil(store.button(for: .moveRightSpace))
     }
+
+    func testInitNormalizesInvalidAndDuplicateAssignments() {
+        defaults.set(
+            [
+                "missionControl": 4,
+                "moveLeftSpace": 4,
+                "moveRightSpace": 1,
+                "unknownAction": 7,
+            ],
+            forKey: ButtonAssignmentStore.defaultStorageKey
+        )
+
+        store = ButtonAssignmentStore(defaults: defaults)
+
+        XCTAssertEqual(store.button(for: .missionControl), 4)
+        XCTAssertNil(store.button(for: .moveLeftSpace))
+        XCTAssertNil(store.button(for: .moveRightSpace))
+
+        let persistedAssignments = defaults.dictionary(
+            forKey: ButtonAssignmentStore.defaultStorageKey
+        ) as? [String: Int]
+        XCTAssertEqual(persistedAssignments, ["missionControl": 4])
+    }
 }

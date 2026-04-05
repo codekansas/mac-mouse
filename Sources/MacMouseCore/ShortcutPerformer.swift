@@ -16,14 +16,10 @@ public struct ShortcutPerformer: ShortcutPerforming {
             }
 
         case .moveLeftSpace:
-            if !MainActor.assumeIsolated({ SpaceController.shared.moveSpace(offset: -1) }) {
-                sendShortcut(keyCode: action.keyCode, flags: action.modifierFlags)
-            }
+            _ = SpaceController.shared.moveSpace(offset: -1)
 
         case .moveRightSpace:
-            if !MainActor.assumeIsolated({ SpaceController.shared.moveSpace(offset: 1) }) {
-                sendShortcut(keyCode: action.keyCode, flags: action.modifierFlags)
-            }
+            _ = SpaceController.shared.moveSpace(offset: 1)
         }
     }
 
