@@ -20,13 +20,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if shouldOpenWindowOnLaunch {
             showWindow()
-        } else if NSApp.activationPolicy() != .accessory {
-            NSApp.setActivationPolicy(.accessory)
+        } else {
+            applyBackgroundActivationPolicyIfNeeded()
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showWindow()
+        return true
     }
 
     @objc
@@ -65,6 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var shouldOpenWindowOnLaunch: Bool {
         !launchedAtLogin || !model.showsMenuBarIcon
+    }
+
+    private func applyBackgroundActivationPolicyIfNeeded() {
+        let targetPolicy: NSApplication.ActivationPolicy = model.showsMenuBarIcon ? .accessory : .regular
+        if NSApp.activationPolicy() != targetPolicy {
+            NSApp.setActivationPolicy(targetPolicy)
+        }
     }
 
     private func configureMainMenu() {
@@ -161,8 +173,6 @@ extension AppDelegate: NSWindowDelegate {
         }
 
         model.setConfigurationPresented(false)
-        if NSApp.activationPolicy() != .accessory {
-            NSApp.setActivationPolicy(.accessory)
-        }
+        applyBackgroundActivationPolicyIfNeeded()
     }
 }
