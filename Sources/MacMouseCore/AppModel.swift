@@ -7,14 +7,18 @@ public final class AppModel: NSObject, ObservableObject {
 
     @Published public private(set) var assignments: [MouseAction: Int]
     @Published public private(set) var permissionStatus: PermissionStatus
+    @Published public private(set) var runsOnStartup: Bool
+    @Published public private(set) var canConfigureRunOnStartup: Bool
     @Published public var showsMenuBarIcon: Bool
     @Published public var captureTarget: MouseAction?
 
     private let defaults: UserDefaults
+    private let launchAtLoginController: LaunchAtLoginControlling
     private let permissionManager: PermissionControlling
     private let store: ButtonAssignmentStore
     private let performer: ShortcutPerforming
     private var permissionTimer: Timer?
+    private var runOnStartupErrorMessage: String?
     private var shouldHandleGlobalEvents = true
     private lazy var monitor = GlobalMouseMonitor(
         store: store,
@@ -26,16 +30,21 @@ public final class AppModel: NSObject, ObservableObject {
 
     public init(
         defaults: UserDefaults = .standard,
+        launchAtLoginController: LaunchAtLoginControlling = LaunchAtLoginController(),
         permissionManager: PermissionControlling = PermissionManager(),
         store: ButtonAssignmentStore = ButtonAssignmentStore(),
         performer: ShortcutPerforming = ShortcutPerformer()
     ) {
         self.defaults = defaults
+        self.launchAtLoginController = launchAtLoginController
         self.permissionManager = permissionManager
         self.store = store
         self.performer = performer
         assignments = store.currentAssignments
         permissionStatus = permissionManager.currentStatus()
+        let launchAtLoginStatus = launchAtLoginController.currentStatus()
+        runsOnStartup = launchAtLoginStatus.isEnabled
+        canConfigureRunOnStartup = launchAtLoginStatus.isAvailable
         if defaults.object(forKey: Self.showMenuBarIconKey) == nil {
             showsMenuBarIcon = true
         } else {
@@ -43,6 +52,7 @@ public final class AppModel: NSObject, ObservableObject {
         }
 
         super.init()
+        refreshRunOnStartupState()
         startPermissionPolling()
         refreshPermissionState()
     }
@@ -75,6 +85,17 @@ public final class AppModel: NSObject, ObservableObject {
         permissionManager.openPrivacySettings()
     }
 
+    public func refreshRunOnStartupState() {
+        do {
+            applyRunOnStartupStatus(try launchAtLoginController.syncRegistrationIfNeeded(), errorMessage: nil)
+        } catch {
+            applyRunOnStartupStatus(
+                launchAtLoginController.currentStatus(),
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
     public func beginCapture(for action: MouseAction) {
         captureTarget = action
     }
@@ -86,6 +107,20 @@ public final class AppModel: NSObject, ObservableObject {
     public func setShowsMenuBarIcon(_ showsMenuBarIcon: Bool) {
         self.showsMenuBarIcon = showsMenuBarIcon
         defaults.set(showsMenuBarIcon, forKey: Self.showMenuBarIconKey)
+    }
+
+    public func setRunsOnStartup(_ runsOnStartup: Bool) {
+        do {
+            applyRunOnStartupStatus(
+                try launchAtLoginController.setEnabled(runsOnStartup),
+                errorMessage: nil
+            )
+        } catch {
+            applyRunOnStartupStatus(
+                launchAtLoginController.currentStatus(),
+                errorMessage: error.localizedDescription
+            )
+        }
     }
 
     public func clearAssignment(for action: MouseAction) {
@@ -131,6 +166,22 @@ public final class AppModel: NSObject, ObservableObject {
         return "Scroll smoothing stays active while MacMouse runs."
     }
 
+    public var runOnStartupNote: String? {
+        if let runOnStartupErrorMessage {
+            return runOnStartupErrorMessage
+        }
+
+        if !canConfigureRunOnStartup && !runsOnStartup {
+            return "Run on Startup is available only from an installed MacMouse.app."
+        }
+
+        if runsOnStartup && !showsMenuBarIcon {
+            return "MacMouse will reopen this window at login while the menu bar icon is hidden."
+        }
+
+        return nil
+    }
+
     private func buttonName(for button: Int) -> String {
         if button == 2 {
             return "Middle Button"
@@ -154,5 +205,14 @@ public final class AppModel: NSObject, ObservableObject {
     @objc
     private func pollPermissions() {
         refreshPermissionState()
+    }
+
+    private func applyRunOnStartupStatus(
+        _ status: LaunchAtLoginStatus,
+        errorMessage: String?
+    ) {
+        runsOnStartup = status.isEnabled
+        canConfigureRunOnStartup = status.isAvailable
+        runOnStartupErrorMessage = errorMessage
     }
 }

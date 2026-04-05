@@ -4,6 +4,7 @@ import MacMouseCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let launchedAtLogin = CommandLine.arguments.contains(LaunchAtLoginController.launchArgument)
     private let model = AppModel()
     private var cancellables: Set<AnyCancellable> = []
     private var statusItem: NSStatusItem?
@@ -16,7 +17,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureApplicationIcon()
         configureMainMenu()
         bindStatusItemVisibility()
-        showWindow()
+
+        if shouldOpenWindowOnLaunch {
+            showWindow()
+        } else if NSApp.activationPolicy() != .accessory {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -55,6 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.showWindow(nil)
         windowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var shouldOpenWindowOnLaunch: Bool {
+        !launchedAtLogin || !model.showsMenuBarIcon
     }
 
     private func configureMainMenu() {

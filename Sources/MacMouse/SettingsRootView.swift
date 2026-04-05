@@ -4,7 +4,7 @@ import SwiftUI
 struct SettingsRootView: View {
     private enum Layout {
         static let width = 420.0
-        static let height = 250.0
+        static let height = 290.0
         static let padding = 18.0
     }
 
@@ -22,6 +22,7 @@ struct SettingsRootView: View {
         .padding(Layout.padding)
         .onAppear {
             model.refreshPermissionState()
+            model.refreshRunOnStartupState()
         }
     }
 
@@ -39,6 +40,8 @@ struct SettingsRootView: View {
             .font(.system(size: 13))
 
             Spacer()
+
+            preferencesView
 
             HStack(spacing: 8) {
                 Button("Grant Access") {
@@ -75,11 +78,38 @@ struct SettingsRootView: View {
             .toggleStyle(.switch)
             .font(.system(size: 13))
 
+            preferencesView
+
             Spacer()
 
             Text(model.helperText)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
+        }
+    }
+
+    private var preferencesView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(
+                "Run on Startup",
+                isOn: Binding(
+                    get: {
+                        model.runsOnStartup
+                    },
+                    set: { isOn in
+                        model.setRunsOnStartup(isOn)
+                    }
+                )
+            )
+            .toggleStyle(.switch)
+            .font(.system(size: 13))
+            .disabled(!model.canConfigureRunOnStartup && !model.runsOnStartup)
+
+            if let runOnStartupNote = model.runOnStartupNote {
+                Text(runOnStartupNote)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
         }
     }
 }
