@@ -14,7 +14,7 @@ final class MainWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.center()
-        window.setContentSize(NSSize(width: 420, height: 250))
+        window.setContentSize(NSSize(width: 420, height: 290))
         window.minSize = window.frame.size
         window.maxSize = window.frame.size
         window.collectionBehavior = [.moveToActiveSpace]
