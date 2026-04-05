@@ -4,17 +4,16 @@ import MacMouseCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private lazy var model = AppModel(
-        shouldHandleEvent: { [weak self] type, event in
-            self?.shouldHandleGlobalEvent(type: type, event: event) ?? true
-        }
-    )
+    private let model = AppModel()
     private var cancellables: Set<AnyCancellable> = []
     private var statusItem: NSStatusItem?
     private var windowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            StartupStderrSilencer.restoreIfNeeded()
+        }
+        configureApplicationIcon()
         configureMainMenu()
         bindStatusItemVisibility()
         showWindow()
@@ -34,6 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    private func configureApplicationIcon() {
+        guard let applicationImage = AppIconAsset.applicationImage else {
+            return
+        }
+
+        NSApp.applicationIconImage = applicationImage
+    }
+
     private func showWindow() {
         if windowController == nil {
             let controller = MainWindowController(model: model)
@@ -41,30 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windowController = controller
         }
 
-        NSApp.setActivationPolicy(.regular)
+        model.setConfigurationPresented(true)
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
         windowController?.showWindow(nil)
         windowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private func shouldHandleGlobalEvent(type: CGEventType, event: CGEvent) -> Bool {
-        guard type == .otherMouseDown || type == .otherMouseUp else {
-            return true
-        }
-
-        guard let window = windowController?.window, window.isVisible,
-              let contentView = window.contentView else {
-            return true
-        }
-
-        let screenPoint = NSPoint(x: event.location.x, y: event.location.y)
-        let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        let contentPoint = contentView.convert(windowPoint, from: nil)
-        guard let hitView = contentView.hitTest(contentPoint) else {
-            return true
-        }
-
-        return hitView is MouseCaptureNSView == false
     }
 
     private func configureMainMenu() {
@@ -117,9 +107,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "🐭"
-        item.button?.toolTip = "MacMouse"
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            button.toolTip = "MacMouse"
+            button.imageScaling = .scaleProportionallyDown
+
+            if let statusItemImage = AppIconAsset.statusItemImage {
+                button.image = statusItemImage
+                button.imagePosition = .imageOnly
+                button.title = ""
+            } else {
+                button.title = "🐭"
+            }
+        }
 
         let menu = NSMenu()
         let openItem = NSMenuItem(
@@ -150,6 +150,9 @@ extension AppDelegate: NSWindowDelegate {
             return
         }
 
-        NSApp.setActivationPolicy(.accessory)
+        model.setConfigurationPresented(false)
+        if NSApp.activationPolicy() != .accessory {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }

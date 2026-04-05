@@ -14,7 +14,10 @@ let package = Package(
         .target(name: "MacMouseCore"),
         .executableTarget(
             name: "MacMouse",
-            dependencies: ["MacMouseCore"]
+            dependencies: ["MacMouseCore"],
+            resources: [
+                .process("Resources"),
+            ]
         ),
         .testTarget(
             name: "MacMouseCoreTests",

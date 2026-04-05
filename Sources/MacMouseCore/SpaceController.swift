@@ -1,37 +1,48 @@
-import AppKit
 import CoreGraphics
 import Darwin
 import Foundation
 
-@MainActor
-final class SpaceController {
-    private typealias CGSConnectionID = UInt32
-    private typealias CGSSpaceID = UInt64
-    private typealias CGError = Int32
-    private typealias CGSMainConnectionIDFn = @convention(c) () -> CGSConnectionID
-    private typealias CGSCopyManagedDisplaySpacesFn = @convention(c) (CGSConnectionID) -> Unmanaged<CFArray>
-    private typealias CGSManagedDisplaySetCurrentSpaceFn = @convention(c) (CGSConnectionID, CFString, CGSSpaceID) -> CGError
+final class SpaceController: @unchecked Sendable {
+    private typealias cgsSymbolicHotKey = UInt32
+    private typealias cgsModifierFlags = UInt32
+    private typealias cgsError = Int32
+    private typealias cgsGetSymbolicHotKeyValueFn = @convention(c) (
+        cgsSymbolicHotKey,
+        UnsafeMutablePointer<UInt16>?,
+        UnsafeMutablePointer<UInt16>?,
+        UnsafeMutablePointer<cgsModifierFlags>?
+    ) -> cgsError
+    private typealias cgsSetSymbolicHotKeyValueFn = @convention(c) (
+        cgsSymbolicHotKey,
+        UInt16,
+        UInt16,
+        cgsModifierFlags
+    ) -> cgsError
+    private typealias cgsIsSymbolicHotKeyEnabledFn = @convention(c) (cgsSymbolicHotKey) -> Bool
+    private typealias cgsSetSymbolicHotKeyEnabledFn = @convention(c) (cgsSymbolicHotKey, Bool) -> cgsError
 
-    private struct ManagedSpace {
-        let id: CGSSpaceID
-        let type: Int
-
-        var isDesktop: Bool {
-            type == 0
-        }
-    }
-
-    private struct ManagedDisplay {
-        let identifier: String
-        let currentSpaceID: CGSSpaceID
-        let orderedSpaces: [ManagedSpace]
+    private struct ShortcutBinding {
+        let keyCode: CGKeyCode
+        let flags: CGEventFlags
     }
 
     private struct Symbols {
         let handle: UnsafeMutableRawPointer
-        let mainConnectionID: CGSMainConnectionIDFn
-        let copyManagedDisplaySpaces: CGSCopyManagedDisplaySpacesFn
-        let setCurrentSpace: CGSManagedDisplaySetCurrentSpaceFn
+        let getSymbolicHotKeyValue: cgsGetSymbolicHotKeyValueFn
+        let setSymbolicHotKeyValue: cgsSetSymbolicHotKeyValueFn
+        let isSymbolicHotKeyEnabled: cgsIsSymbolicHotKeyEnabledFn
+        let setSymbolicHotKeyEnabled: cgsSetSymbolicHotKeyEnabledFn
+    }
+
+    private enum Constants {
+        static let skyLightPath = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
+        static let moveLeftSpaceHotKeyID: cgsSymbolicHotKey = 79
+        static let moveRightSpaceHotKeyID: cgsSymbolicHotKey = 81
+        static let nullKeyEquivalent = UInt16.max
+        static let invalidKeyCode = UInt16.max
+        static let hiddenKeyCodeBase: UInt16 = 400
+        static let success: cgsError = 0
+        static let hiddenFlags: cgsModifierFlags = (1 << 21) | (1 << 23)
     }
 
     static let shared = SpaceController()
@@ -40,13 +51,11 @@ final class SpaceController {
 
     private init() {
         guard
-            let handle = dlopen(
-                "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
-                RTLD_NOW
-            ),
-            let mainConnectionSymbol = dlsym(handle, "CGSMainConnectionID"),
-            let copySpacesSymbol = dlsym(handle, "CGSCopyManagedDisplaySpaces"),
-            let setCurrentSpaceSymbol = dlsym(handle, "CGSManagedDisplaySetCurrentSpace")
+            let handle = dlopen(Constants.skyLightPath, RTLD_NOW),
+            let getValueSymbol = dlsym(handle, "CGSGetSymbolicHotKeyValue"),
+            let setValueSymbol = dlsym(handle, "CGSSetSymbolicHotKeyValue"),
+            let isEnabledSymbol = dlsym(handle, "CGSIsSymbolicHotKeyEnabled"),
+            let setEnabledSymbol = dlsym(handle, "CGSSetSymbolicHotKeyEnabled")
         else {
             symbols = nil
             return
@@ -54,157 +63,146 @@ final class SpaceController {
 
         symbols = Symbols(
             handle: handle,
-            mainConnectionID: unsafeBitCast(mainConnectionSymbol, to: CGSMainConnectionIDFn.self),
-            copyManagedDisplaySpaces: unsafeBitCast(copySpacesSymbol, to: CGSCopyManagedDisplaySpacesFn.self),
-            setCurrentSpace: unsafeBitCast(setCurrentSpaceSymbol, to: CGSManagedDisplaySetCurrentSpaceFn.self)
-        )
-    }
-
-    func moveSpace(offset: Int) -> Bool {
-        guard
-            offset == -1 || offset == 1,
-            let symbols,
-            let displayID = displayIDUnderPointer(),
-            let displayIdentifier = displayIdentifier(for: displayID)
-        else {
-            return false
-        }
-
-        let connectionID = symbols.mainConnectionID()
-        guard
-            let managedDisplay = managedDisplay(
-                withIdentifier: displayIdentifier,
-                connectionID: connectionID,
-                copyManagedDisplaySpaces: symbols.copyManagedDisplaySpaces
+            getSymbolicHotKeyValue: unsafeBitCast(
+                getValueSymbol,
+                to: cgsGetSymbolicHotKeyValueFn.self
             ),
-            let targetSpaceID = targetDesktopSpaceID(
-                for: managedDisplay,
-                offset: offset
+            setSymbolicHotKeyValue: unsafeBitCast(
+                setValueSymbol,
+                to: cgsSetSymbolicHotKeyValueFn.self
             ),
-            targetSpaceID != managedDisplay.currentSpaceID
-        else {
-            return false
-        }
-
-        let result = symbols.setCurrentSpace(
-            connectionID,
-            managedDisplay.identifier as CFString,
-            targetSpaceID
-        )
-        return result == 0
-    }
-
-    private func targetDesktopSpaceID(
-        for managedDisplay: ManagedDisplay,
-        offset: Int
-    ) -> CGSSpaceID? {
-        let desktopSpaces = managedDisplay.orderedSpaces.filter(\.isDesktop)
-        guard !desktopSpaces.isEmpty else {
-            return nil
-        }
-
-        if let currentDesktopIndex = desktopSpaces.firstIndex(where: { space in
-            space.id == managedDisplay.currentSpaceID
-        }) {
-            let targetIndex = currentDesktopIndex + offset
-            guard desktopSpaces.indices.contains(targetIndex) else {
-                return nil
-            }
-
-            return desktopSpaces[targetIndex].id
-        }
-
-        guard let currentOrderedIndex = managedDisplay.orderedSpaces.firstIndex(where: { space in
-            space.id == managedDisplay.currentSpaceID
-        }) else {
-            return nil
-        }
-
-        var candidateIndex = currentOrderedIndex + offset
-        while managedDisplay.orderedSpaces.indices.contains(candidateIndex) {
-            let candidate = managedDisplay.orderedSpaces[candidateIndex]
-            if candidate.isDesktop {
-                return candidate.id
-            }
-            candidateIndex += offset
-        }
-
-        return nil
-    }
-
-    private func managedDisplay(
-        withIdentifier identifier: String,
-        connectionID: CGSConnectionID,
-        copyManagedDisplaySpaces: CGSCopyManagedDisplaySpacesFn
-    ) -> ManagedDisplay? {
-        let rawDisplays = copyManagedDisplaySpaces(connectionID).takeRetainedValue() as NSArray
-
-        for rawDisplay in rawDisplays {
-            guard
-                let display = rawDisplay as? NSDictionary,
-                let candidateIdentifier = display["Display Identifier"] as? String,
-                candidateIdentifier == identifier,
-                let currentSpace = display["Current Space"] as? NSDictionary,
-                let currentSpaceID = numericSpaceID(from: currentSpace),
-                let rawSpaces = display["Spaces"] as? [NSDictionary]
-            else {
-                continue
-            }
-
-            let orderedSpaces = rawSpaces.compactMap(managedSpace(from:))
-            return ManagedDisplay(
-                identifier: candidateIdentifier,
-                currentSpaceID: currentSpaceID,
-                orderedSpaces: orderedSpaces
+            isSymbolicHotKeyEnabled: unsafeBitCast(
+                isEnabledSymbol,
+                to: cgsIsSymbolicHotKeyEnabledFn.self
+            ),
+            setSymbolicHotKeyEnabled: unsafeBitCast(
+                setEnabledSymbol,
+                to: cgsSetSymbolicHotKeyEnabledFn.self
             )
-        }
-
-        return nil
+        )
     }
 
-    private func managedSpace(from dictionary: NSDictionary) -> ManagedSpace? {
-        guard let id = numericSpaceID(from: dictionary) else {
+    // Follow mac-mouse-fix's approach: target the system's CGSSymbolicHotKey
+    // IDs for "Move left/right a Space" instead of selecting a desktop or
+    // falling back to plain Ctrl-arrow injection. If the user has no keyboard
+    // shortcut configured for the symbolic hotkey, create an unreachable hidden
+    // binding and trigger that.
+    func moveSpace(offset: Int) -> Bool {
+        let hotKeyID: cgsSymbolicHotKey
+        switch offset {
+        case -1:
+            hotKeyID = Constants.moveLeftSpaceHotKeyID
+        case 1:
+            hotKeyID = Constants.moveRightSpaceHotKeyID
+        default:
+            return false
+        }
+
+        return postSymbolicHotKey(hotKeyID)
+    }
+
+    private func postSymbolicHotKey(_ hotKeyID: cgsSymbolicHotKey) -> Bool {
+        guard let symbols else {
+            return false
+        }
+
+        if let binding = configuredBinding(for: hotKeyID, symbols: symbols) {
+            return postKeyboardShortcut(binding)
+        }
+
+        guard
+            ensureHiddenBinding(for: hotKeyID, symbols: symbols),
+            let binding = hiddenBinding(for: hotKeyID)
+        else {
+            return false
+        }
+
+        return postKeyboardShortcut(binding)
+    }
+
+    private func configuredBinding(
+        for hotKeyID: cgsSymbolicHotKey,
+        symbols: Symbols
+    ) -> ShortcutBinding? {
+        guard symbols.isSymbolicHotKeyEnabled(hotKeyID) else {
             return nil
         }
 
-        let type = (dictionary["type"] as? NSNumber)?.intValue ?? 0
-        return ManagedSpace(id: id, type: type)
-    }
+        var keyEquivalent = Constants.nullKeyEquivalent
+        var keyCode = Constants.invalidKeyCode
+        var modifiers: cgsModifierFlags = 0
+        let result = symbols.getSymbolicHotKeyValue(
+            hotKeyID,
+            &keyEquivalent,
+            &keyCode,
+            &modifiers
+        )
 
-    private func numericSpaceID(from dictionary: NSDictionary) -> CGSSpaceID? {
-        if let number = dictionary["ManagedSpaceID"] as? NSNumber {
-            return number.uint64Value
-        }
-
-        if let number = dictionary["id64"] as? NSNumber {
-            return number.uint64Value
-        }
-
-        return nil
-    }
-
-    private func displayIDUnderPointer() -> CGDirectDisplayID? {
-        let pointerLocation = CGEvent(source: nil)?.location ?? .zero
-        var displayID: CGDirectDisplayID = 0
-        var displayCount: UInt32 = 0
-        let result = withUnsafeMutablePointer(to: &displayID) { displayIDPtr in
-            withUnsafeMutablePointer(to: &displayCount) { displayCountPtr in
-                CGGetDisplaysWithPoint(pointerLocation, 1, displayIDPtr, displayCountPtr)
-            }
-        }
-
-        guard result == .success, displayCount > 0 else {
+        guard result == Constants.success, keyCode != Constants.invalidKeyCode else {
             return nil
         }
 
-        return displayID
+        return ShortcutBinding(
+            keyCode: CGKeyCode(keyCode),
+            flags: CGEventFlags(rawValue: UInt64(modifiers))
+        )
     }
 
-    private func displayIdentifier(for displayID: CGDirectDisplayID) -> String? {
-        guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else {
+    private func ensureHiddenBinding(
+        for hotKeyID: cgsSymbolicHotKey,
+        symbols: Symbols
+    ) -> Bool {
+        let enableResult = symbols.setSymbolicHotKeyEnabled(hotKeyID, true)
+        guard enableResult == Constants.success else {
+            return false
+        }
+
+        guard let binding = hiddenBinding(for: hotKeyID) else {
+            return false
+        }
+
+        let result = symbols.setSymbolicHotKeyValue(
+            hotKeyID,
+            Constants.nullKeyEquivalent,
+            UInt16(binding.keyCode),
+            Constants.hiddenFlags
+        )
+        return result == Constants.success
+    }
+
+    private func hiddenBinding(for hotKeyID: cgsSymbolicHotKey) -> ShortcutBinding? {
+        let keyCodeValue = Int(hotKeyID) + Int(Constants.hiddenKeyCodeBase)
+        guard let keyCode = UInt16(exactly: keyCodeValue) else {
             return nil
         }
 
-        return (CFUUIDCreateString(kCFAllocatorDefault, uuid) as String).uppercased()
+        return ShortcutBinding(
+            keyCode: CGKeyCode(keyCode),
+            flags: CGEventFlags(rawValue: UInt64(Constants.hiddenFlags))
+        )
+    }
+
+    private func postKeyboardShortcut(_ binding: ShortcutBinding) -> Bool {
+        guard
+            let keyDown = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: binding.keyCode,
+                keyDown: true
+            ),
+            let keyUp = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: binding.keyCode,
+                keyDown: false
+            )
+        else {
+            return false
+        }
+
+        let originalModifierFlags = keyDown.flags
+        keyDown.flags = binding.flags
+        keyUp.flags = originalModifierFlags
+        keyDown.post(tap: .cgSessionEventTap)
+        keyUp.post(tap: .cgSessionEventTap)
+        return true
     }
 }

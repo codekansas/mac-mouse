@@ -14,13 +14,13 @@ public final class AppModel: NSObject, ObservableObject {
     private let permissionManager: PermissionControlling
     private let store: ButtonAssignmentStore
     private let performer: ShortcutPerforming
-    private let shouldHandleEvent: (CGEventType, CGEvent) -> Bool
     private var permissionTimer: Timer?
+    private var shouldHandleGlobalEvents = true
     private lazy var monitor = GlobalMouseMonitor(
         store: store,
         performer: performer,
-        shouldHandleEvents: { [weak self] type, event in
-            self?.shouldHandleEvent(type, event) ?? true
+        shouldHandleEvents: { [weak self] in
+            self?.shouldHandleGlobalEvents ?? true
         }
     )
 
@@ -28,14 +28,12 @@ public final class AppModel: NSObject, ObservableObject {
         defaults: UserDefaults = .standard,
         permissionManager: PermissionControlling = PermissionManager(),
         store: ButtonAssignmentStore = ButtonAssignmentStore(),
-        performer: ShortcutPerforming = ShortcutPerformer(),
-        shouldHandleEvent: @escaping (CGEventType, CGEvent) -> Bool = { _, _ in true }
+        performer: ShortcutPerforming = ShortcutPerformer()
     ) {
         self.defaults = defaults
         self.permissionManager = permissionManager
         self.store = store
         self.performer = performer
-        self.shouldHandleEvent = shouldHandleEvent
         assignments = store.currentAssignments
         permissionStatus = permissionManager.currentStatus()
         if defaults.object(forKey: Self.showMenuBarIconKey) == nil {
@@ -81,6 +79,10 @@ public final class AppModel: NSObject, ObservableObject {
         captureTarget = action
     }
 
+    public func setConfigurationPresented(_ isPresented: Bool) {
+        shouldHandleGlobalEvents = !isPresented
+    }
+
     public func setShowsMenuBarIcon(_ showsMenuBarIcon: Bool) {
         self.showsMenuBarIcon = showsMenuBarIcon
         defaults.set(showsMenuBarIcon, forKey: Self.showMenuBarIconKey)
@@ -124,10 +126,6 @@ public final class AppModel: NSObject, ObservableObject {
     public var helperText: String {
         if captureTarget != nil {
             return "Primary and secondary clicks are ignored."
-        }
-
-        if !showsMenuBarIcon {
-            return "Scroll smoothing stays active while MacMouse runs."
         }
 
         return "Scroll smoothing stays active while MacMouse runs."

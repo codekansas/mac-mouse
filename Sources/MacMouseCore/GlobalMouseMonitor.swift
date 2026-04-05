@@ -5,7 +5,7 @@ public final class GlobalMouseMonitor {
     private let store: ButtonAssignmentStore
     private let performer: ShortcutPerforming
     private let scrollSmoother: ScrollSmoother
-    private let shouldHandleEvents: (CGEventType, CGEvent) -> Bool
+    private let shouldHandleEvents: () -> Bool
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -14,7 +14,7 @@ public final class GlobalMouseMonitor {
         store: ButtonAssignmentStore,
         performer: ShortcutPerforming,
         scrollSmoother: ScrollSmoother = ScrollSmoother(),
-        shouldHandleEvents: @escaping (CGEventType, CGEvent) -> Bool = { _, _ in true }
+        shouldHandleEvents: @escaping () -> Bool = { true }
     ) {
         self.store = store
         self.performer = performer
@@ -89,7 +89,7 @@ public final class GlobalMouseMonitor {
             return Unmanaged.passUnretained(event)
         }
 
-        guard shouldHandleEvents(type, event) else {
+        guard shouldHandleEvents() else {
             return Unmanaged.passUnretained(event)
         }
 
