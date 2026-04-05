@@ -29,6 +29,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard windowController?.window?.isVisible != true else {
+            return
+        }
+
+        showWindow()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showWindow()
         return true
@@ -69,13 +77,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var shouldOpenWindowOnLaunch: Bool {
-        !launchedAtLogin || !model.showsMenuBarIcon
+        !launchedAtLogin
     }
 
     private func applyBackgroundActivationPolicyIfNeeded() {
-        let targetPolicy: NSApplication.ActivationPolicy = model.showsMenuBarIcon ? .accessory : .regular
-        if NSApp.activationPolicy() != targetPolicy {
-            NSApp.setActivationPolicy(targetPolicy)
+        if NSApp.activationPolicy() != .accessory {
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 

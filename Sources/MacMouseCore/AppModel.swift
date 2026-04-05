@@ -176,7 +176,7 @@ public final class AppModel: NSObject, ObservableObject {
         }
 
         if runsOnStartup && !showsMenuBarIcon {
-            return "MacMouse will reopen this window at login while the menu bar icon is hidden."
+            return "MacMouse stays hidden at login when the menu bar icon is off. Open MacMouse.app again to show this window."
         }
 
         return nil
