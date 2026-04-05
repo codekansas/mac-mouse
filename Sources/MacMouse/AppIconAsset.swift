@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 enum AppIconAsset {
     private static let resourceName = "MouseIcon"
 
