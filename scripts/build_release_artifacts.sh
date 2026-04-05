@@ -8,13 +8,12 @@ VERSION_TAG="${1:-v0.1.0}"
 OUTPUT_DIR="${2:-$ROOT_DIR/dist}"
 VERSION="${VERSION_TAG#v}"
 APP_BUNDLE_PATH="$OUTPUT_DIR/$PRODUCT_NAME.app"
-DMG_STAGING_DIR="$OUTPUT_DIR/dmg"
-DMG_PATH="$OUTPUT_DIR/$PRODUCT_NAME-$VERSION.dmg"
+ZIP_PATH="$OUTPUT_DIR/$PRODUCT_NAME-$VERSION.zip"
 CHECKSUM_PATH="$OUTPUT_DIR/$PRODUCT_NAME-$VERSION.sha256"
 ICON_SOURCE_PATH="$ROOT_DIR/Sources/MacMouse/Resources/MouseIcon.png"
 ICON_FILE_NAME="$PRODUCT_NAME.icns"
 NOTARY_TEMP_DIR="$OUTPUT_DIR/notary"
-APP_ZIP_PATH="$NOTARY_TEMP_DIR/$PRODUCT_NAME-$VERSION.zip"
+NOTARY_ZIP_PATH="$NOTARY_TEMP_DIR/$PRODUCT_NAME-$VERSION-notary.zip"
 
 SIGNING_IDENTITY="${MACMOUSE_SIGNING_IDENTITY:-}"
 NOTARY_APPLE_ID="${MACMOUSE_NOTARY_APPLE_ID:-}"
@@ -26,12 +25,11 @@ if [[ ! "$VERSION_TAG" =~ '^v[0-9][0-9A-Za-z._-]*$' ]]; then
     exit 1
 fi
 
-rm -rf "$APP_BUNDLE_PATH" "$DMG_STAGING_DIR" "$DMG_PATH" "$CHECKSUM_PATH"
+rm -rf "$APP_BUNDLE_PATH" "$ZIP_PATH" "$CHECKSUM_PATH"
 rm -rf "$NOTARY_TEMP_DIR"
 mkdir -p \
     "$APP_BUNDLE_PATH/Contents/MacOS" \
     "$APP_BUNDLE_PATH/Contents/Resources" \
-    "$DMG_STAGING_DIR" \
     "$NOTARY_TEMP_DIR"
 
 if [[ -z "$SIGNING_IDENTITY" ]]; then
@@ -128,8 +126,8 @@ if (( HAS_SIGNING_IDENTITY )); then
     codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" \
         "$APP_BUNDLE_PATH"
 
-    ditto -c -k --keepParent "$APP_BUNDLE_PATH" "$APP_ZIP_PATH"
-    xcrun notarytool submit "$APP_ZIP_PATH" \
+    ditto -c -k --keepParent "$APP_BUNDLE_PATH" "$NOTARY_ZIP_PATH"
+    xcrun notarytool submit "$NOTARY_ZIP_PATH" \
         --apple-id "$NOTARY_APPLE_ID" \
         --password "$NOTARY_PASSWORD" \
         --team-id "$NOTARY_TEAM_ID" \
@@ -146,37 +144,13 @@ fi
 
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE_PATH"
 
-cp -R "$APP_BUNDLE_PATH" "$DMG_STAGING_DIR/"
-ln -s /Applications "$DMG_STAGING_DIR/Applications"
+ditto -c -k --keepParent "$APP_BUNDLE_PATH" "$ZIP_PATH"
 
-hdiutil create \
-    -volname "$PRODUCT_NAME" \
-    -srcfolder "$DMG_STAGING_DIR" \
-    -ov \
-    -format UDZO \
-    "$DMG_PATH"
-
-if (( HAS_SIGNING_IDENTITY )); then
-    codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$DMG_PATH"
-    xcrun notarytool submit "$DMG_PATH" \
-        --apple-id "$NOTARY_APPLE_ID" \
-        --password "$NOTARY_PASSWORD" \
-        --team-id "$NOTARY_TEAM_ID" \
-        --wait
-    xcrun stapler staple "$DMG_PATH"
-    xcrun stapler validate "$DMG_PATH"
-    spctl --assess --verbose=2 --type open "$DMG_PATH"
-else
-    codesign --force --sign - --timestamp=none "$DMG_PATH"
-fi
-
-codesign --verify --verbose=2 "$DMG_PATH"
-
-shasum -a 256 "$DMG_PATH" > "$CHECKSUM_PATH"
+shasum -a 256 "$ZIP_PATH" > "$CHECKSUM_PATH"
 
 echo "Created:"
 echo "  $APP_BUNDLE_PATH"
-echo "  $DMG_PATH"
+echo "  $ZIP_PATH"
 echo "  $CHECKSUM_PATH"
 
 if (( HAS_SIGNING_IDENTITY )); then
