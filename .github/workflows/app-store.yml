@@ -1,0 +1,115 @@
+name: app-store
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: Release version tag to package, for example v0.1.9.
+        required: true
+        type: string
+      upload:
+        description: Upload the validated package to App Store Connect.
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  package-app-store:
+    name: package-app-store
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Import Mac App Store signing assets
+        env:
+          APP_CERTIFICATE_BASE64: ${{ secrets.APPLE_MAC_APP_DISTRIBUTION_P12 }}
+          APP_P12_PASSWORD: ${{ secrets.APPLE_MAC_APP_DISTRIBUTION_P12_PASSWORD }}
+          INSTALLER_CERTIFICATE_BASE64: ${{ secrets.APPLE_MAC_INSTALLER_DISTRIBUTION_P12 }}
+          INSTALLER_P12_PASSWORD: ${{ secrets.APPLE_MAC_INSTALLER_DISTRIBUTION_P12_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_MAC_APP_STORE_PROVISIONING_PROFILE }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-macmouse-appstore
+        run: |
+          if [ -z "$APP_CERTIFICATE_BASE64" ] || [ -z "$APP_P12_PASSWORD" ]; then
+            echo "APPLE_MAC_APP_DISTRIBUTION_P12 and APPLE_MAC_APP_DISTRIBUTION_P12_PASSWORD are required."
+            exit 1
+          fi
+          if [ -z "$INSTALLER_CERTIFICATE_BASE64" ] || [ -z "$INSTALLER_P12_PASSWORD" ]; then
+            echo "APPLE_MAC_INSTALLER_DISTRIBUTION_P12 and APPLE_MAC_INSTALLER_DISTRIBUTION_P12_PASSWORD are required."
+            exit 1
+          fi
+          if [ -z "$PROVISIONING_PROFILE_BASE64" ]; then
+            echo "APPLE_MAC_APP_STORE_PROVISIONING_PROFILE is required."
+            exit 1
+          fi
+
+          APP_CERT_PATH="$RUNNER_TEMP/mac-app-distribution.p12"
+          INSTALLER_CERT_PATH="$RUNNER_TEMP/mac-installer-distribution.p12"
+          PROFILE_PATH="$RUNNER_TEMP/macmouse.provisionprofile"
+          INTERMEDIATE_CERT_PATH="$RUNNER_TEMP/apple-wwdr-g3.cer"
+          KEYCHAIN_PATH="$RUNNER_TEMP/macmouse-app-store.keychain-db"
+          LOGIN_KEYCHAIN="$(security default-keychain -d user | tr -d '"' | xargs)"
+          if [ -z "$LOGIN_KEYCHAIN" ]; then
+            LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+          fi
+
+          printf '%s' "$APP_CERTIFICATE_BASE64" | base64 -D > "$APP_CERT_PATH"
+          printf '%s' "$INSTALLER_CERTIFICATE_BASE64" | base64 -D > "$INSTALLER_CERT_PATH"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE_PATH"
+          curl --fail --location --silent --show-error \
+            https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer \
+            --output "$INTERMEDIATE_CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          if ! security import "$INTERMEDIATE_CERT_PATH" -A -t cert -k "$LOGIN_KEYCHAIN"; then
+            security find-certificate -Z -c "Apple Worldwide Developer Relations Certification Authority" "$LOGIN_KEYCHAIN" \
+              | grep -q "06EC06599F4ED0027CC58956B4D3AC1255114F35"
+          fi
+          security import "$APP_CERT_PATH" -P "$APP_P12_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$INSTALLER_CERT_PATH" -P "$INSTALLER_P12_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$LOGIN_KEYCHAIN"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productbuild: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v "$KEYCHAIN_PATH"
+          echo "MACMOUSE_SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "MACMOUSE_APP_STORE_PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode.app ]; then
+            sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
+          fi
+
+      - name: Show toolchain
+        run: |
+          xcode-select -p
+          swift --version
+
+      - name: Run unit tests
+        run: swift test
+
+      - name: Build and optionally upload App Store package
+        env:
+          MACMOUSE_SIGNING_KEYCHAIN: ${{ env.MACMOUSE_SIGNING_KEYCHAIN }}
+          MACMOUSE_APP_STORE_PROVISIONING_PROFILE: ${{ env.MACMOUSE_APP_STORE_PROVISIONING_PROFILE }}
+          MACMOUSE_APP_STORE_APPLICATION_IDENTITY: ${{ secrets.APPLE_MAC_APP_DISTRIBUTION_IDENTITY }}
+          MACMOUSE_APP_STORE_INSTALLER_IDENTITY: ${{ secrets.APPLE_MAC_INSTALLER_DISTRIBUTION_IDENTITY }}
+          MACMOUSE_UPLOAD_TO_APP_STORE: ${{ inputs.upload && '1' || '0' }}
+          MACMOUSE_APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          MACMOUSE_APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          MACMOUSE_APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+        run: ./scripts/build_app_store_package.sh "${{ inputs.version_tag }}"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macmouse-app-store-package
+          path: |
+            dist/app-store/*.pkg
+            dist/app-store/*.sha256

@@ -3,4 +3,8 @@
 apple_account_private_key.pem
 csr.txt
 developerID_application.cer
+mac_app.cer
 *.p12
+*.provisionprofile
+*.mobileprovision
+AuthKey_*.p8

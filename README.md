@@ -23,6 +23,7 @@ MacMouse opens its setup window on launch, then stays available from the menu ba
 - Published GitHub Releases run the `release` workflow, which builds a `.app`, packages a `.zip`, and uploads the `.zip` plus a SHA-256 checksum to the release.
 - GitHub release builds require `APPLE_DEVELOPER_ID_APPLICATION_P12` and `APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD`, then sign the app with Developer ID.
 - If GitHub Actions also has `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` configured, the release workflow notarizes the `.app` and staples the notarization ticket before packaging.
+- The manual `app-store` workflow builds a Mac App Store `.pkg` and can upload it to App Store Connect. It requires `APPLE_MAC_APP_DISTRIBUTION_P12`, `APPLE_MAC_APP_DISTRIBUTION_P12_PASSWORD`, `APPLE_MAC_APP_DISTRIBUTION_IDENTITY`, `APPLE_MAC_INSTALLER_DISTRIBUTION_P12`, `APPLE_MAC_INSTALLER_DISTRIBUTION_P12_PASSWORD`, `APPLE_MAC_INSTALLER_DISTRIBUTION_IDENTITY`, `APPLE_MAC_APP_STORE_PROVISIONING_PROFILE`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`, and `APP_STORE_CONNECT_API_PRIVATE_KEY`.
 
 ## Permissions
 
