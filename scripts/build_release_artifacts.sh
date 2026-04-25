@@ -16,9 +16,11 @@ NOTARY_TEMP_DIR="$OUTPUT_DIR/notary"
 NOTARY_ZIP_PATH="$NOTARY_TEMP_DIR/$PRODUCT_NAME-$VERSION-notary.zip"
 
 SIGNING_IDENTITY="${MACMOUSE_SIGNING_IDENTITY:-}"
+SIGNING_KEYCHAIN="${MACMOUSE_SIGNING_KEYCHAIN:-}"
 NOTARY_APPLE_ID="${MACMOUSE_NOTARY_APPLE_ID:-}"
 NOTARY_PASSWORD="${MACMOUSE_NOTARY_PASSWORD:-}"
 NOTARY_TEAM_ID="${MACMOUSE_NOTARY_TEAM_ID:-}"
+REQUIRE_DEVELOPER_ID_SIGNING="${MACMOUSE_REQUIRE_DEVELOPER_ID_SIGNING:-0}"
 
 if [[ ! "$VERSION_TAG" =~ '^v[0-9][0-9A-Za-z._-]*$' ]]; then
     echo "Expected a release tag like v0.1.0, got: $VERSION_TAG" >&2
@@ -33,15 +35,25 @@ mkdir -p \
     "$NOTARY_TEMP_DIR"
 
 if [[ -z "$SIGNING_IDENTITY" ]]; then
+    FIND_IDENTITY_ARGS=(-v -p codesigning)
+    if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+        FIND_IDENTITY_ARGS+=("$SIGNING_KEYCHAIN")
+    fi
     SIGNING_IDENTITY="$(
-        security find-identity -v -p codesigning 2>/dev/null \
+        security find-identity "${FIND_IDENTITY_ARGS[@]}" 2>/dev/null \
             | sed -n 's/.*"\\(Developer ID Application:.*\\)"/\\1/p' \
             | head -n 1
     )"
 fi
 
+CODESIGN_SIGNING_ARGS=()
+if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+    CODESIGN_SIGNING_ARGS+=(--keychain "$SIGNING_KEYCHAIN")
+fi
+
 HAS_SIGNING_IDENTITY=0
 HAS_NOTARY_CREDENTIALS=0
+HAS_PARTIAL_NOTARY_CREDENTIALS=0
 
 if [[ -n "$SIGNING_IDENTITY" ]]; then
     HAS_SIGNING_IDENTITY=1
@@ -51,10 +63,23 @@ if [[ -n "$NOTARY_APPLE_ID" && -n "$NOTARY_PASSWORD" && -n "$NOTARY_TEAM_ID" ]];
     HAS_NOTARY_CREDENTIALS=1
 fi
 
-if (( HAS_SIGNING_IDENTITY != HAS_NOTARY_CREDENTIALS )); then
-    echo "Developer ID signing and notarization must be configured together." >&2
-    echo "Provide a Developer ID Application certificate plus MACMOUSE_NOTARY_* credentials," >&2
-    echo "or provide neither to fall back to ad-hoc signing." >&2
+if [[ -n "$NOTARY_APPLE_ID" || -n "$NOTARY_PASSWORD" || -n "$NOTARY_TEAM_ID" ]]; then
+    HAS_PARTIAL_NOTARY_CREDENTIALS=1
+fi
+
+if (( HAS_PARTIAL_NOTARY_CREDENTIALS && ! HAS_NOTARY_CREDENTIALS )); then
+    echo "Notarization credentials are incomplete." >&2
+    echo "Provide MACMOUSE_NOTARY_APPLE_ID, MACMOUSE_NOTARY_PASSWORD, and MACMOUSE_NOTARY_TEAM_ID together." >&2
+    exit 1
+fi
+
+if (( HAS_NOTARY_CREDENTIALS && ! HAS_SIGNING_IDENTITY )); then
+    echo "Notarization requires a Developer ID signing identity." >&2
+    exit 1
+fi
+
+if [[ "$REQUIRE_DEVELOPER_ID_SIGNING" == "1" && -z "$SIGNING_IDENTITY" ]]; then
+    echo "A Developer ID signing identity is required for this build." >&2
     exit 1
 fi
 
@@ -121,20 +146,22 @@ cat >"$APP_BUNDLE_PATH/Contents/Info.plist" <<EOF
 EOF
 
 if (( HAS_SIGNING_IDENTITY )); then
-    codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" \
+    codesign --force --timestamp --options runtime "${CODESIGN_SIGNING_ARGS[@]}" --sign "$SIGNING_IDENTITY" \
         "$APP_BUNDLE_PATH/Contents/MacOS/$PRODUCT_NAME"
-    codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" \
+    codesign --force --timestamp --options runtime "${CODESIGN_SIGNING_ARGS[@]}" --sign "$SIGNING_IDENTITY" \
         "$APP_BUNDLE_PATH"
 
-    ditto -c -k --keepParent "$APP_BUNDLE_PATH" "$NOTARY_ZIP_PATH"
-    xcrun notarytool submit "$NOTARY_ZIP_PATH" \
-        --apple-id "$NOTARY_APPLE_ID" \
-        --password "$NOTARY_PASSWORD" \
-        --team-id "$NOTARY_TEAM_ID" \
-        --wait
-    xcrun stapler staple "$APP_BUNDLE_PATH"
-    xcrun stapler validate "$APP_BUNDLE_PATH"
-    spctl --assess --verbose=2 --type execute "$APP_BUNDLE_PATH"
+    if (( HAS_NOTARY_CREDENTIALS )); then
+        ditto -c -k --keepParent "$APP_BUNDLE_PATH" "$NOTARY_ZIP_PATH"
+        xcrun notarytool submit "$NOTARY_ZIP_PATH" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --wait
+        xcrun stapler staple "$APP_BUNDLE_PATH"
+        xcrun stapler validate "$APP_BUNDLE_PATH"
+        spctl --assess --verbose=2 --type execute "$APP_BUNDLE_PATH"
+    fi
 else
     # Without a paid Developer ID certificate, the best we can do in CI is
     # ad-hoc signing. Gatekeeper will still warn for downloaded builds.
@@ -153,8 +180,11 @@ echo "  $APP_BUNDLE_PATH"
 echo "  $ZIP_PATH"
 echo "  $CHECKSUM_PATH"
 
-if (( HAS_SIGNING_IDENTITY )); then
+if (( HAS_SIGNING_IDENTITY && HAS_NOTARY_CREDENTIALS )); then
     echo "  notarized with Developer ID: $SIGNING_IDENTITY"
+elif (( HAS_SIGNING_IDENTITY )); then
+    echo "  signed with Developer ID: $SIGNING_IDENTITY"
+    echo "  not notarized; configure MACMOUSE_NOTARY_* credentials to notarize release builds"
 else
     echo "  signed ad-hoc only; Gatekeeper will warn for downloaded builds"
 fi

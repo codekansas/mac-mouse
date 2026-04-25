@@ -20,9 +20,9 @@ MacMouse opens its setup window on launch, then stays available from the menu ba
 
 - Pull requests and pushes run the `unit-tests` GitHub Actions workflow.
 - `master` is configured to require the `unit-tests` check before merging pull requests.
-- Published GitHub Releases run the `release` workflow, which builds a `.app`, packages a `.dmg`, and uploads the `.dmg` plus a SHA-256 checksum to the release.
-- If GitHub Actions has `APPLE_DEVELOPER_ID_APPLICATION_P12`, `APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` configured, the release workflow signs the app with Developer ID, notarizes the `.app` and `.dmg`, and staples the notarization tickets.
-- Without that Apple signing configuration, the workflow falls back to ad-hoc signing, and macOS will still warn that downloaded builds can't be verified.
+- Published GitHub Releases run the `release` workflow, which builds a `.app`, packages a `.zip`, and uploads the `.zip` plus a SHA-256 checksum to the release.
+- GitHub release builds require `APPLE_DEVELOPER_ID_APPLICATION_P12` and `APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD`, then sign the app with Developer ID.
+- If GitHub Actions also has `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` configured, the release workflow notarizes the `.app` and staples the notarization ticket before packaging.
 
 ## Permissions
 

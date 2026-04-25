@@ -1,2 +1,6 @@
 .build/
 .DS_Store
+apple_account_private_key.pem
+csr.txt
+developerID_application.cer
+*.p12
