@@ -37,10 +37,15 @@ public struct PermissionManager: PermissionControlling {
     public func openPrivacySettings() {
         let status = currentStatus()
         let urls: [URL?] = [
-            status.listenEnabled
+            !status.accessibilityEnabled
                 ? URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-                : URL(string: "x-apple.systempreferences:com.apple.preference.security"),
+                : nil,
+            !status.listenEnabled
+                ? URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+                : nil,
             URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"),
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"),
+            URL(string: "x-apple.systempreferences:com.apple.preference.security"),
         ]
 
         for candidateURL in urls {

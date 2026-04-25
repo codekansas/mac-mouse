@@ -4,7 +4,7 @@ import SwiftUI
 struct SettingsRootView: View {
     private enum Layout {
         static let width = 420.0
-        static let height = 290.0
+        static let height = 330.0
         static let padding = 18.0
     }
 
@@ -28,23 +28,18 @@ struct SettingsRootView: View {
 
     private var permissionView: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Allow Accessibility and Input Monitoring, then assign your mouse buttons.")
+            Text("Grant both permissions so MacMouse can read extra mouse buttons and trigger macOS shortcuts.")
                 .font(.system(size: 14))
                 .foregroundColor(.secondary)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("1. Click Grant Access.")
-                Text("2. Enable MacMouse if macOS asks.")
-                Text("3. Come back here.")
-            }
-            .font(.system(size: 13))
+            permissionChecklist
 
             Spacer()
 
             preferencesView
 
             HStack(spacing: 8) {
-                Button("Grant Access") {
+                Button("Grant Permissions") {
                     model.requestRequiredAccess()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -53,6 +48,22 @@ struct SettingsRootView: View {
                     model.openPrivacySettings()
                 }
             }
+        }
+    }
+
+    private var permissionChecklist: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            PermissionRequirementRow(
+                title: "Accessibility",
+                detail: "Allows MacMouse to control Mission Control and Space shortcuts.",
+                isGranted: model.permissionStatus.accessibilityEnabled
+            )
+
+            PermissionRequirementRow(
+                title: "Input Monitoring",
+                detail: "Allows MacMouse to read extra mouse buttons and scroll-wheel input.",
+                isGranted: model.permissionStatus.listenEnabled
+            )
         }
     }
 
@@ -109,6 +120,37 @@ struct SettingsRootView: View {
                 Text(runOnStartupNote)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+private struct PermissionRequirementRow: View {
+    let title: String
+    let detail: String
+    let isGranted: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.circle")
+                .foregroundColor(isGranted ? .green : .orange)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 18, height: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+
+                    Text(isGranted ? "Granted" : "Needed")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(isGranted ? .green : .orange)
+                }
+
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
